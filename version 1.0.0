@@ -1,0 +1,751 @@
+#simple blender physics based muscle simulation add-on that can be used in comb. with a rigged, animated creature mesh
+
+bl_info = {
+    "name": "Muscle Tissue Simulator",
+    "author": "Taylor Steinert",
+    "description": "Muscle Simulation Add-On",
+    "version": (1, 0, 0),
+    "blender": (4, 4, 3),
+    "location": "3D Viewport > Sidebar",
+    "category": "MTS",
+}
+
+import bpy
+import bmesh
+
+from bpy.types import Operator
+from bpy.props import IntProperty
+from bpy.props import FloatProperty, PointerProperty
+from bpy.types import Panel, PropertyGroup, Operator
+
+class PlayAnimationOperator(bpy.types.Operator):
+    
+    """Starts animation playback"""
+    bl_idname = "screen.custom_play_animation"
+    bl_label = "Play Animation"
+
+    def execute(self, context):
+        if not context.screen.is_animation_playing:
+            bpy.ops.screen.animation_play()
+            print("Animation is playing")
+        return {'FINISHED'}
+
+class PauseAnimationOperator(bpy.types.Operator):
+    """Pauses animation playback"""
+    bl_idname = "screen.custom_pause_animation"
+    bl_label = "Pause Animation"
+
+    def execute(self, context):
+        if context.screen.is_animation_playing:
+            bpy.ops.screen.animation_play()
+            print("Animation is paused")
+        return {'FINISHED'}
+
+
+class EnablePhysicsOperator(bpy.types.Operator):
+    """Adds a cloth modifier to the selected object(s)"""
+    bl_idname = "object.enable_cloth_physics"
+    bl_label = "Enable Cloth Physics"
+    bl_options = {'REGISTER', 'UNDO'}
+
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                # Check if cloth modifier already exists
+                if not any(mod.type == 'CLOTH' for mod in obj.modifiers):
+                    obj.modifiers.new(name="Cloth", type='CLOTH')
+                    self.report({'INFO'}, f"Cloth modifier added to {obj.name}")
+                    
+                    # Defines obj
+                    obj = bpy.context.object
+                    
+                    # Defines cloth settings
+                    cloth_settings = obj.modifiers["Cloth"].settings
+                    
+                    cloth_settings.use_internal_springs = True
+                    cloth_settings.use_pressure = True
+              
+                    # Adjusts internal spring properties
+                    cloth_settings.internal_tension_stiffness = 2.0
+                    cloth_settings.internal_compression_stiffness = 2.0
+                    
+                    cloth_settings.internal_tension_stiffness_max = 3.0
+                    cloth_settings.internal_compression_stiffness_max = 3.0                  
+                    
+                    #Adjusts uniform pressure force properties
+                    cloth_settings.uniform_pressure_force = 2.0
+                else:
+                    self.report({'WARNING'}, f"{obj.name} already has a cloth modifier")
+            else:
+                self.report({'WARNING'}, f"{obj.name} is not a mesh object")
+        return {'FINISHED'}
+
+
+class DisablePhysicsOperator(bpy.types.Operator):
+    """Removes the cloth modifier from the selected object(s)"""
+    bl_idname = "object.disable_cloth_physics"
+    bl_label = "Disable Cloth Physics"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                # Collect cloth modifiers to remove
+                cloth_mods = [mod for mod in obj.modifiers if mod.type == 'CLOTH']
+                if cloth_mods:
+                    for mod in cloth_mods:
+                        obj.modifiers.remove(mod)
+                    self.report({'INFO'}, f"Removed cloth modifier from {obj.name}")
+                else:
+                    self.report({'WARNING'}, f"No cloth modifier found on {obj.name}")
+            else:
+                self.report({'WARNING'}, f"{obj.name} is not a mesh object")
+        return {'FINISHED'}
+
+
+class EnableCollisionOperator(bpy.types.Operator):
+    """Adds a collision modifier to the selected object(s)"""
+    bl_idname = "object.enable_collision_physics"
+    bl_label = "Enable Collision Physics"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                # Check if cloth modifier already exists
+                if not any(mod.type == 'COLLISION' for mod in obj.modifiers):
+                    obj.modifiers.new(name="Collision", type='COLLISION')
+                    self.report({'INFO'}, f"Collision modifier added to {obj.name}")
+                else:
+                    self.report({'WARNING'}, f"{obj.name} already has a collision modifier")
+            else:
+                self.report({'WARNING'}, f"{obj.name} is not a mesh object")
+        return {'FINISHED'}
+
+class DisableCollisionOperator(bpy.types.Operator):
+    """Removes collision modifier from the selected object(s)"""
+    bl_idname = "object.disable_collision_physics"
+    bl_label = "Disable Collision Physics"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                # Collect collision modifiers to remove
+                collision_mods = [mod for mod in obj.modifiers if mod.type == 'COLLISION']
+                if collision_mods:
+                    for mod in collision_mods:
+                        obj.modifiers.remove(mod)
+                    self.report({'INFO'}, f"Removed collision modifier from {obj.name}")
+                else:
+                    self.report({'WARNING'}, f"No collision modifier found on {obj.name}")
+            else:
+                self.report({'WARNING'}, f"{obj.name} is not a mesh object")
+        return {'FINISHED'}    
+
+
+class EnableTriangulateMeshOperator(bpy.types.Operator):
+    """Adds a triangulate modifier to selected mesh objects"""
+    bl_idname = "object.add_triangulate_modifier"
+    bl_label = "Triangulate Mesh"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                if not any(mod.type == 'TRIANGULATE' for mod in obj.modifiers):
+                    obj.modifiers.new(name="Triangulate", type='TRIANGULATE')
+                    self.report({'INFO'}, f"Triangulate modifier added to {obj.name}")
+                else:
+                    self.report({'WARNING'}, f"{obj.name} already has a triangulate modifier")
+            else:
+                self.report({'WARNING'}, f"{obj.name} is not a mesh object")
+        return {'FINISHED'}
+
+class DisableTriangulateMeshOperator(bpy.types.Operator):
+    """Removes the triangulate modifier from the selected object(s)"""
+    bl_idname = "object.disable_triangulate_modifier"
+    bl_label = "Disable Triangulate Modifier"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                # Collect triangulate modifier to remove
+                triangulate_mods = [mod for mod in obj.modifiers if mod.type == 'TRIANGULATE']
+                if triangulate_mods:
+                    for mod in triangulate_mods:
+                        obj.modifiers.remove(mod)
+                    self.report({'INFO'}, f"Removed triangulate modifier from {obj.name}")
+                else:
+                    self.report({'WARNING'}, f"No triangulate modifier found on {obj.name}")
+            else:
+                self.report({'WARNING'}, f"{obj.name} is not a mesh object")
+        return {'FINISHED'}
+
+
+class EnableSubdivisionSurfaceOperator(bpy.types.Operator):
+    """Adds a subdivision surface modifier to selected mesh objects"""
+    bl_idname = "object.add_subdivisionsurface_modifier"
+    bl_label = "Enable Subdivision Surface Modifier"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                if not any(mod.type == 'SUBDIVISION' for mod in obj.modifiers):
+                    obj.modifiers.new(name="Subdivision Surface", type='SUBSURF')
+                    self.report({'INFO'}, f"Subdivision surface modifier added to {obj.name}")
+                else:
+                    self.report({'WARNING'}, f"{obj.name} already has a Subdivision surface modifier")
+            else:
+                self.report({'WARNING'}, f"{obj.name} is not a mesh object")
+        return {'FINISHED'}
+    
+class DisableSubdivisionSurfaceOperator(bpy.types.Operator):
+    """Removes the subdivision surface modifier from the selected object(s)"""
+    bl_idname = "object.disable_subdivisionsurface_modifier"
+    bl_label = "Disable Subdivision Surface Modifier"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                # Collect triangulate modifier to remove
+                subdivisionsurface_mods = [mod for mod in obj.modifiers if mod.type == 'SUBSURF']
+                if subdivisionsurface_mods:
+                    for mod in subdivisionsurface_mods:
+                        obj.modifiers.remove(mod)
+                    self.report({'INFO'}, f"Removed subdivision surface modifier from {obj.name}")
+                else:
+                    self.report({'WARNING'}, f"No subdivision surface modifier found on {obj.name}")
+            else:
+                self.report({'WARNING'}, f"{obj.name} is not a mesh object")
+        return {'FINISHED'}
+
+
+class VertexGroupMuscleEnds(bpy.types.Operator):
+    bl_idname = "object.define_muscle_ends"
+    bl_label = "Define muscle ends"
+    bl_description = "Create and auto-assign vertex group 'muscle ends'"
+
+    def execute(self, context):
+        obj = context.object
+        if obj and obj.type == 'MESH':
+            # Checks for presence of vertex group muscle_ends
+            if "muscle_ends" not in obj.vertex_groups:
+                # Creates new vg muscle_ends
+                obj.vertex_groups.new(name="muscle_ends")
+                # Auto-assigns vg muscle_ends cloth mod > shape > pin_group
+                bpy.context.object.modifiers["Cloth"].settings.vertex_group_mass = "muscle_ends"
+                self.report({'INFO'}, "muscle ends group created")
+            else:
+                self.report({'WARNING'}, "Vertex group already exists")
+            return {'FINISHED'}
+        else:
+            self.report({'ERROR'}, "No mesh object selected")
+            return {'CANCELLED'}
+
+class VertexGroupMusclePressure(bpy.types.Operator):
+    bl_idname = "object.define_muscle_pressure"
+    bl_label = "Define muscle pressure"
+    bl_description = "Create and auto-assign vertex group 'muscle_pressure'"
+
+    def execute(self, context):
+        obj = context.object
+        if obj and obj.type == 'MESH':
+            if "muscle_pressure" not in obj.vertex_groups:
+                obj.vertex_groups.new(name="muscle_pressure")
+                bpy.context.object.modifiers["Cloth"].settings.vertex_group_pressure = "muscle_pressure"
+                self.report({'INFO'}, "Muscle weight group created")
+            else:
+                self.report({'WARNING'}, "Vertex group already exists")
+            return {'FINISHED'}
+        else:
+            self.report({'ERROR'}, "No mesh object selected")
+            return {'CANCELLED'}
+
+class VertexGroupMuscleBending(bpy.types.Operator):
+    bl_idname = "object.define_muscle_bending"
+    bl_label = "Define muscle bending"
+    bl_description = "Create and auto-assign vertex group 'muscle_bending'"
+
+    def execute(self, context):
+        obj = context.object
+        if obj and obj.type == 'MESH':
+            if "muscle_bending_stiffness" not in obj.vertex_groups:
+                obj.vertex_groups.new(name="muscle_bending_stiffness")
+                bpy.context.object.modifiers["Cloth"].settings.vertex_group_bending = "muscle_bending_stiffness"
+                self.report({'INFO'}, "Muscle bending group created")
+            else:
+                self.report({'WARNING'}, "Vertex group already exists")
+            return {'FINISHED'}
+        else:
+            self.report({'ERROR'}, "No mesh object selected")
+            return {'CANCELLED'}
+
+class VertexGroupMuscleShrinkage(bpy.types.Operator):
+    bl_idname = "object.define_muscle_shrinkage"
+    bl_label = "Define muscle shrinkage"
+    bl_description = "Create and auto-assign vertex group 'muscle_shrinkage'"
+
+    def execute(self, context):
+        obj = context.object
+        if obj and obj.type == 'MESH':
+            if "muscle_shrinkage" not in obj.vertex_groups:
+                obj.vertex_groups.new(name="muscle_shrinkage")
+                bpy.context.object.modifiers["Cloth"].settings.vertex_group_shrink = "muscle_shrinkage"
+                self.report({'INFO'}, "Muscle shrinkage group created")
+            else:
+                self.report({'WARNING'}, "Vertex group already exists")
+            return {'FINISHED'}
+        else:
+            self.report({'ERROR'}, "No mesh object selected")
+            return {'CANCELLED'}
+
+
+class MuscleTissueSimulator_Settings_PG(bpy.types.PropertyGroup):
+    def update_modifier(self, context):
+        
+        # Checks for presence of cloth modifier and applies changes from add-on to it
+        cloth = context.object.modifiers.get("Cloth")
+        if cloth:
+            cloth.settings.mass = self.cloth_mass
+            cloth.settings.air_damping = self.air_damping
+            cloth.settings.tension_stiffness = self.tension_stiffness
+            cloth.settings.compression_stiffness = self.compression_stiffness
+            cloth.settings.tension_damping = self.tension_damping
+            cloth.settings.compression_damping = self.compression_damping
+            cloth.settings.bending_stiffness = self.bending_stiffness
+    
+    cloth_mass: FloatProperty(
+        name = "Muscle Mass (kg/vertex)",
+        default= 0.3,
+        min = 0.1,
+        max = 50.0,
+        soft_max = 10.0,
+        description = "The mass of each vertex on the muscle.",
+        update = update_modifier
+    )
+    
+    air_damping: FloatProperty(
+        name ="Air viscosity",
+        default = 1.0,
+        min = 0.1,
+        soft_max = 1.0,
+        max = 20.0,
+        description = "Air thickness that slows falling objects down.",
+        update = update_modifier
+    )
+    
+    tension_stiffness: FloatProperty(
+        name = "Tension",
+        default = 5.0,
+        min = 1.0,
+        max = 50.0,
+        soft_max = 20.0,
+        description = "Object stretching resistence.",
+        update = update_modifier
+    )
+    
+    compression_stiffness: FloatProperty(
+        name = "Compression",
+        default = 5.0,
+        min = 1.0,
+        max = 50.0,
+        soft_max = 20.0,
+        description = "Object compression resistence.",
+        update = update_modifier
+    )
+    
+    tension_damping: FloatProperty(
+        name = "Tension",
+        default = 5.0,
+        min = 1.0,
+        max = 50.0,
+        soft_max = 20.0,
+        description = "Amount of damping in stretching behavior.",
+        update = update_modifier
+    )
+    
+    compression_damping: FloatProperty(
+        name = "Compression",
+        default = 5.0,
+        max = 50.0,
+        soft_max = 20.0,
+        description = "Amount of damping in compression behavior.",
+        update = update_modifier
+    )
+    
+    bending_stiffness: FloatProperty(
+        name = "Bending Stiffness",
+        default = 0.5,
+        min = 0.0,
+        soft_max = 1.0,
+        max = 2.0,
+        description = "Amount of resistance to bending.",
+        update = update_modifier        
+    )
+    
+    bending_damping: FloatProperty(
+        name = "Bending Damping",
+        default = 0.5,
+        min = 0.0,
+        soft_max = 1.0,
+        max = 2.0,
+        description = "Amount of damping in bending behavior.",
+        update = update_modifier
+    )
+    
+    shrink_min: FloatProperty(
+        name = "Shrinking Factor",
+        default = 0.0,
+        min = -1.0,
+        max = 1.0,
+        description = "Factor by which to shrink muscle.",
+        update = update_modifier
+    )
+    
+    
+class MuscleTissueSimulator_PT_Muscle_Tissue_Simulator(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "MTS"
+    bl_label = "Muscle Tissue Simulator" # Panel label/name
+
+    def draw_header_preset(self, context):
+        layout = self.layout
+        layout.label(text="", icon="RENDER_ANIMATION")
+
+
+    def draw(self, context):
+        layout = self.layout
+        
+        """Timeline / Playback settings"""
+        
+        layout.label(text="Simulation Timeline Controls")
+        
+        # Create black box and horizontal row inside it
+        box = layout.box()  # bordered box with black background
+        row = box.row()  # horizontal row inside the box
+
+        # First column (Play button)
+        col = row.column()
+        col.operator("screen.custom_play_animation", text="Play", icon='PLAY')
+
+        # Second column (Pause button)
+        col = row.column()
+        col.operator("screen.custom_pause_animation", text="Pause", icon='PAUSE')
+
+        # Third column (Reset button)
+        col = row.column()
+        col.operator("screen.frame_jump", text="", icon='FILE_REFRESH').end = False
+
+
+class MuscleTissueSimulator_PT_Muscle_Physics(bpy.types.Panel):
+    
+    """Creates buttons and access to important functions from cloth physics to simulate muscles"""
+    
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "MTS"
+    bl_label = "Muscle Physics"
+    bl_idname = "MTS_PT_tissue_settings"
+        
+    def draw_header_preset(self, context):
+        layout = self.layout
+        layout.label(text="", icon="PHYSICS")
+
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column()
+        
+        obj = context.object
+        
+        props = obj.settings_pg_props
+        
+        """Tissue Physics & Constraints"""
+        """Physics"""
+        
+        # If no objects selected
+        if len(context.selected_objects) == 0:
+            row = col.row()
+            row.label(text = "No objects selected")
+            return
+
+        layout.label(text="Physics")
+
+        # Physics modifier => Cloth modifier
+        box = layout.box()
+        row = box.row()
+        row.label(text = "Physics: ")
+        row.alert = True
+        col = row.column()
+        col.operator("object.enable_cloth_physics", text="Enable", icon = 'CHECKMARK')
+        row.alert = False
+        col = row.column()
+        col.operator("object.disable_cloth_physics", text="Remove", icon = 'CANCEL')
+
+
+        # Triangulate modifier 
+        box = layout.box()
+        row = box.row()
+        row.label(text = "Triangulate: ")
+        col = row.column()
+        col.operator("object.add_triangulate_modifier", text="Enable", icon = 'CHECKMARK')
+        col = row.column()
+        col.operator("object.disable_triangulate_modifier", text="Remove", icon = 'CANCEL')
+        
+        # Physics modifier => Collision modifier        
+        box = layout.box()
+        row = box.row()    
+        row.label(text = "Collision Object: ")
+        col = row.column()
+        col.operator("object.enable_collision_physics", text="Enable", icon = 'CHECKMARK')
+        col = row.column()
+        col.operator("object.disable_collision_physics", text="Remove", icon = 'CANCEL')
+
+        # => Cloth Modifier Settings
+        cloth_mod = next((mod for mod in obj.modifiers if mod.type == 'CLOTH'), None)
+        if cloth_mod:
+            
+            cloth_settings = cloth_mod.settings
+            collision_settings = cloth_mod.collision_settings
+
+            layout.prop(cloth_settings, "quality", text="Simulation Quality", slider=True)
+            layout.prop(collision_settings, "collision_quality", text="Collision Quality", slider=True)
+            layout.prop(collision_settings, "use_self_collisions", text = "Self Collision", toggle = True)
+            
+            # Separator
+            row = layout.row()
+            row.label(text="") 
+            
+            """Physical Properties"""
+           
+            # Pulls data from MuscleTissueSimulator_Settings_PG Property Group
+            layout.label(text = "Physical Properties")
+            layout.prop(props, "cloth_mass", slider=True)
+            layout.prop(props, "air_damping", slider = True)
+            
+            layout.label(text = "Stiffness")
+            layout.prop(props, "tension_stiffness", slider = True)
+            layout.prop(props, "compression_stiffness", slider = True)
+            layout.prop(props, "bending_stiffness", slider = True)
+            
+            
+            layout.label(text = "Damping")            
+            layout.prop(props, "tension_damping", slider = True)
+            layout.prop(props, "compression_damping", slider = True)        
+            layout.prop(props, "bending_damping", slider = True)
+                                    
+            layout.label(text = "Optional")
+            
+            layout.prop(cloth_settings, "use_internal_springs", text = "Internal Springs", toggle = True)
+            layout.prop(cloth_settings, "use_pressure", text = "Pressure", toggle = True)
+            layout.prop(collision_settings, "use_self_collision", text = "Self Collisions", toggle = True)
+            
+
+
+class MuscleTissueSimulator_PT_MuscleConstraints(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "MTS"
+    bl_label = "Muscle Constraints"
+    bl_idname = "MTS_PT_muscle_attachment"
+    
+
+    def draw_header_preset(self, context):
+        layout = self.layout
+        layout.label(text="", icon="GROUP_VERTEX")
+
+    def draw(self, context):
+        
+        layout = self.layout
+        col = layout.column()
+        
+        """Check for selected Object"""
+        
+        # If no objects selected
+        if len(context.selected_objects) == 0:
+            row = col.row()
+            row.label(text = "No objects selected")
+            return
+        
+        """Vertex Groups"""
+        layout.label(text="Weight paint bounds for -Physical Properties-")        
+
+        box = layout.box()
+        row = box.row()
+
+        row.alert = True
+        # Creates vertex group for Muscle Ends
+        col = row.column()
+        col.operator("object.define_muscle_ends", text = "Muscle Ends")
+        
+        row.alert = False
+        # Creates vertex group for Muscle Weight
+        col = row.column()
+        col.operator("object.define_muscle_pressure", text = "Muscle Pressure")
+        
+        row = box.row()
+        
+        # Creates vertex group for Muscle Bending Stiffness
+        col = row.column()
+        col.operator("object.define_muscle_bending", text = "Muscle Bending Stiffness")
+        
+        # Creates vertex group for Muscle Bending Stiffness
+        col = row.column()
+        col.operator("object.define_muscle_shrinkage", text = "Muscle Shrinkage")
+        
+
+        
+class MuscleTissueSimulator_PT_visual_settings(bpy.types.Panel):
+    
+    """Creates fast access to Subdivision Surface Modifier and different Shading options for object(s)"""
+    
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "MTS"
+    bl_label = "Visual Settings"
+    bl_idname = "MTS_PT_visual_settings"
+    
+
+    def draw_header_preset(self, context):
+        layout = self.layout
+        layout.label(text="", icon="MOD_SUBSURF")
+
+
+    def draw(self, context):
+        
+        layout = self.layout
+        col = layout.column()
+        
+        # If no objects selected
+        if len(context.selected_objects) == 0:
+            row = col.row()
+            row.label(text = "No objects selected")
+            return 
+        
+        """Visual Settings"""
+        """Subsurface Scattering Modifier"""
+        
+        layout.label(text="Subdivision Surface")
+        box = layout.box()
+        row = box.row()
+
+        col = row.column()
+        col.operator("object.add_subdivisionsurface_modifier", text="Enable", icon = 'CHECKMARK')
+        col = row.column()
+        col.operator("object.disable_subdivisionsurface_modifier", text="Remove", icon = 'CANCEL')
+        
+        
+        """Object Shading Options"""
+        
+        layout.label(text="Object Shading Options")
+
+        box = layout.box()
+        row = box.row()
+
+        # Smooth shading
+        col = row.column()
+        col.operator("object.shade_smooth", text="Smooth")
+        
+        # Auto smooth shading
+        col = row.column()
+        col.operator("object.shade_auto_smooth", text="Auto")
+        
+        # Flat shading
+        col = row.column()
+        col.operator("object.shade_flat", text="Flat")
+
+
+
+class MuscleTissueSimulator_Help(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "MTS"
+    bl_label = "Help & Support"
+    bl_idname = "MTS_PT_Help"
+
+    def draw_header_preset(self, context):
+        layout = self.layout
+        layout.label(text="", icon="INFO")
+        
+    def draw(self, context):
+        
+        layout = self.layout
+        col = layout.column()
+        
+        """Help Panel"""
+        
+        layout.label(text="FAQ: ")
+        layout.label(text="Documentation: ")
+        layout.label(text="Video Tutorial: ")
+        
+
+def register():
+    bpy.utils.register_class(MuscleTissueSimulator_PT_Muscle_Tissue_Simulator)
+    
+    bpy.utils.register_class(PlayAnimationOperator)
+    bpy.utils.register_class(PauseAnimationOperator)
+    
+    bpy.utils.register_class(MuscleTissueSimulator_PT_Muscle_Physics)
+    
+    bpy.utils.register_class(EnablePhysicsOperator)
+    bpy.utils.register_class(DisablePhysicsOperator)
+    bpy.utils.register_class(EnableCollisionOperator)
+    bpy.utils.register_class(DisableCollisionOperator)    
+    bpy.utils.register_class(EnableTriangulateMeshOperator)
+    bpy.utils.register_class(DisableTriangulateMeshOperator)
+    bpy.utils.register_class(EnableSubdivisionSurfaceOperator)
+    bpy.utils.register_class(DisableSubdivisionSurfaceOperator)
+
+    bpy.utils.register_class(MuscleTissueSimulator_Settings_PG)
+    bpy.types.Object.settings_pg_props = bpy.props.PointerProperty(type=MuscleTissueSimulator_Settings_PG)
+
+    bpy.utils.register_class(MuscleTissueSimulator_PT_MuscleConstraints)
+    bpy.utils.register_class(VertexGroupMuscleEnds)
+    bpy.utils.register_class(VertexGroupMusclePressure)
+    bpy.utils.register_class(VertexGroupMuscleBending)
+    bpy.utils.register_class(VertexGroupMuscleShrinkage)
+        
+    bpy.utils.register_class(MuscleTissueSimulator_PT_visual_settings)
+
+    bpy.utils.register_class(MuscleTissueSimulator_Help)
+
+def unregister():
+    bpy.utils.unregister_class(MuscleTissueSimulator_PT_Muscle_Tissue_Simulator)
+    
+    bpy.utils.unregister_class(PlayAnimationOperator)
+    bpy.utils.unregister_class(PauseAnimationOperator)
+    
+    bpy.utils.unregister_class(MuscleTissueSimulator_PT_Muscle_Physics)
+    
+    bpy.utils.unregister_class(EnablePhysicsOperator)
+    bpy.utils.unregister_class(DisablePhysicsOperator)
+    bpy.utils.unregister_class(EnableCollisionOperator)
+    bpy.utils.unregister_class(DisableCollisionOperator)  
+    bpy.utils.unregister_class(EnableTriangulateMeshApplyOperator)
+    bpy.utils.unregister_class(DisableTriangulateMeshOperator)
+    bpy.utils.unregister_class(EnableSubdivisionSurfaceOperator)
+    bpy.utils.unregister_class(DisableSubdivisionSurfaceOperator)
+    
+    bpy.utils.unregister_class(MuscleTissueSimulator_OT_define_muscle_ends)    
+    
+    bpy.utils.unregister_class(MuscleTissueSimulator_Settings_PG)
+    bpy.types.Object.settings_pg_props = bpy.props.PointerProperty(type=MuscleTissueSimulator_Settings_PG)    
+
+    bpy.utils.unregister_class(MuscleTissueSimulator_PT_MuscleConstraints)
+    bpy.utils.unregister_class(VertexGroupMuscleEnds)
+    bpy.utils.unregister_class(VertexGroupMusclePressure)
+    bpy.utils.register_class(VertexGroupMuscleBending)
+    bpy.utils.register_class(VertexGroupMuscleShrinkage)
+        
+    bpy.utils.unregister_class(MuscleTissueSimulator_PT_visual_settings)
+
+    bpy.utils.unregister_class(MuscleTissueSimulator_Help)    
+
+if __name__ == "__main__":
+    register()
